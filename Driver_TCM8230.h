@@ -1,3 +1,12 @@
+//////////////////////////////////////////////////////////////////////////////////////////////
+//
+// File				: Drivers_TCM8230.c
+// Author(s)		: Fabian Kung
+// Last modified	: 6 Feb 2018
+// Tool-suites		: Atmel Studio 7.0 or later
+//                    GCC C-Compiler
+//////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifndef _DRIVER_TCM8230_SAM4S_H
 #define _DRIVER_TCM8230_SAM4S_H
 
@@ -14,8 +23,8 @@ extern	int		gnFrameCounter;
 extern	int		gnImageWidth;
 extern	int		gnImageHeight;
 extern	unsigned	int		gnCameraLED;
-extern int		gnEyeLEDRight;			// Visible light LED for the eyes control registers.
-extern int		gnEyeLEDLeft;
+extern int		gnEyeLED1;			// Visible light LED for the eyes control registers.
+extern int		gnEyeLED2;
 extern	int		gnLuminanceMode;	// Option to set how luminance value for each pixel
 									// is computed from the RGB component.
 									// 0 - Luminance (I) is computed from RGB using
@@ -40,17 +49,13 @@ extern	unsigned int gunImgAtt[160][120];
 #define     _SAT_MASK           0x003E0000  // Saturation mask, bit22-17.
 #define     _CSAT_MASK          0xFFC1FFFF  // One's complement of saturation mask.
 #define     _SAT_SHIFT          17
-#define     _NO_HUE             0x1FF       // Value for no hue, in decimal 511.
+#define     _NO_HUE_BRIGHT      420         // Value for no hue when object is too bright or near grayscale.
+#define     _NO_HUE_DARK		400         // Value for no hue when object is too dark.
 // Valid hue ranges from 0 to 360.
 #define     _GRAD_MASK          0x7F800000  // bit30-23
 #define     _CGRAD_MASK         0x807FFFFF  // One's complement of gradient mask.
 #define     _GRAD_SHIFT         23
 #define     _MAX_GRADIENT       255
-
-extern	unsigned int	gunR;
-extern	unsigned int	gunG;
-extern	unsigned int	gunB;
-extern	unsigned int	gunDeltaRGB;
 
 extern	int16_t gunIHisto[255];
 extern	unsigned int	gunAverageLuminance;
