@@ -2,22 +2,22 @@
 //
 //  APPLICATION PROGRAM INTERFACE ROUTINES FOR SAM4S ARM CORTEX-M4 MICROCONTROLLER
 //
-//  (c) Copyright 2015, Fabian Kung Wai Lee, Selangor, MALAYSIA
+//  (c) Copyright 2015-2018, Fabian Kung Wai Lee, Selangor, MALAYSIA
 //  All Rights Reserved  
 //   
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Filename			: os_SAM4S_APIs.c
 // Author			: Fabian Kung
-// Last modified	: 23 Nov 2015
-// Version			: 1.00
+// Last modified	: 27 Feb 2018
+// Version			: 1.01
 // Description		: This file contains the implementation of all the important routines
 //                    used by the OS and the user routines. Most of the routines deal with
 //                    micro-controller specifics resources, thus the functions have to be
 //                    rewritten for different micro-controller family. Only the function
 //                    prototype (call convention) of the routine is to be maintained.  In this
 //                    way the OS can be ported to different micro-controller family.
-// Toolsuites		: AtmelStudio 6.2 or above
+// Toolsuites		: AtmelStudio 7.0 or above
 //                	  GCC C-Compiler 
 // Micro-controller	: Atmel SAM4S ARM Cortex-M4 families.
 
@@ -36,31 +36,6 @@
 //////////////////////////////////////////////////////////////////////////////////////////////
 //  BEGINNING OF CODES SPECIFIC TO SAM4SD16 MICROCONTROLLER	    //////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-// Interrupt Service Routine 
-// Author		: Fabian Kung
-// Last modified	: 12 Dec 2011
-// Purpose		: This routine performs the following important tasks pertaining to the 
-//                        RTOS:
-//			  1. Updates the 32-bits global clock tick gulClockTick of the OS when Timer 1 overflows.
-//			  2. Increments the timer property of each tasks.
-//                        3. Check for task overflow condition (i.e. the time used to run the tasks is
-//                           greater the the clock tick.  When this happen the main scheduler will be
-//                          stalled, with the indicator LED turned on all the time. This option can be
-//                           disbled by remarking the relevant codes in the routine.
-//
-// Arguments		: None
-// Return		: None
-
-
-// Interrupt Service Routine 
-// Author		: Fabian Kung
-// Last modified	: 29 March 2012
-// Purpose		: This routine handles math routines error.
-// Arguments		: None
-// Return		: None
 
 
 // Function name	: ClearWatchDog 

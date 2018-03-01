@@ -1,12 +1,12 @@
-//
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 //
 // File				: Drivers_TCM8230.c
 // Author(s)		: Fabian Kung
-// Last modified	: 22 August 2017
+// Last modified	: 9 Feb 2018
 // Tool-suites		: Atmel Studio 7.0 or later
 //                    GCC C-Compiler
-
+//////////////////////////////////////////////////////////////////////////////////////////////
 #include "osmain.h"
 #include "Driver_I2C_V100.h"
 #include "Driver_UART_V100.h"
@@ -22,13 +22,16 @@
 #define _IMAGE_VRESOLUTION   120
 #define _NOPIXELSINFRAME	 19200
 
+//#define _IMAGE_HRESOLUTION   128		// For 128x96 pixels subQCIF resolution.
+//#define _IMAGE_VRESOLUTION   96
+//#define _NOPIXELSINFRAME	 12288
 				
 int		gnFrameCounter = 0;
 int		gnImageWidth = _IMAGE_HRESOLUTION;
 int		gnImageHeight = _IMAGE_VRESOLUTION;
 int		gnCameraLED = 0;
-int		gnEyeLEDRight = 0;			// Visible light LED for the eyes control registers.
-int		gnEyeLEDLeft = 0;
+int		gnEyeLED1 = 0;				// Visible light LEDs for the eyes control registers.
+int		gnEyeLED2 = 0;				// 
 int		gnLuminanceMode = 0;		// Option to set how luminance value for each pixel
 									// is computed from the RGB component.
 									// 0 - Luminance (I) is computed from RGB using 
@@ -38,6 +41,7 @@ int		gnLuminanceMode = 0;		// Option to set how luminance value for each pixel
 									// Else - I = 4B
 									 
 unsigned int gunImgAtt[_IMAGE_HRESOLUTION][_IMAGE_VRESOLUTION];   // Image attribute buffer.
+
 // bit6 - bit0 = Luminance information, 7-bits.
 // bit7 - Marker flag, set to 1 if we wish the external/remote display to highlight
 //        this pixel.
@@ -54,23 +58,19 @@ unsigned int gunImgAtt[_IMAGE_HRESOLUTION][_IMAGE_VRESOLUTION];   // Image attri
 #define     _SAT_MASK           0x003E0000  // Saturation mask, bit22-17.
 #define     _CSAT_MASK          0xFFC1FFFF  // One's complement of saturation mask.
 #define     _SAT_SHIFT          17
-#define     _NO_HUE             0x1FF       // Value for no hue, in decimal 511.
+#define     _NO_HUE_BRIGHT      420         // Value for no hue when object is too bright or near grayscale.
+#define     _NO_HUE_DARK		400         // Value for no hue when object is too dark.
 // Valid hue ranges from 0 to 360.
 #define     _GRAD_MASK          0x7F800000  // bit30-23
 #define     _CGRAD_MASK         0x807FFFFF  // One's complement of gradient mask.
 #define     _GRAD_SHIFT         23
 #define     _MAX_GRADIENT       255
 
-unsigned int	gunR;						// Test variables.
-unsigned int	gunG;
-unsigned int	gunB;
-unsigned int	gunDeltaRGB;
-
 int16_t gunIHisto[255];    // Histogram for intensity, 255 levels.
 unsigned int gunAverageLuminance = 0;
 
-#define		_CAMERA_READY			1	// 1 = Camera module ready.
-#define		_CAMERA_NOT_READY		0	// 0 = Camera module not ready.
+#define			_CAMERA_READY			1	// 1 = Camera module ready.
+#define			_CAMERA_NOT_READY		0	// 0 = Camera module not ready.
 int				gnCameraReady = _CAMERA_NOT_READY;		
 
 // --- PRIVATE VARIABLES ---										
@@ -85,9 +85,9 @@ inline int Max(int a, int b) {return (a > b)? a: b;}
 ///
 /// Author				: Fabian Kung
 ///
-/// Last modified		: 22 Aug 2017
+/// Last modified		: 9 Feb 2018
 ///
-/// Code Version		: 1.01
+/// Code Version		: 1.04
 ///
 /// Processor			: ARM Cortex-M4 family
 ///
@@ -160,9 +160,7 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 	int	nLuminance1, nLuminance2, nLuminance3, nLuminance4, nLuminance5, nLuminance6;
 	int nLuminance7, nLuminance8;
 	int	nLumGradx, nLumGrady, nLumGrad;
-	static unsigned int unLumCumulative;
-	
-	static int nInitCounter = 0;
+	static unsigned int unLumCumulative; 
 
 
 	if (ptrTask->nTimer == 0)
@@ -173,7 +171,19 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 					//           to the camera, it's frequency will determine the frame rate of the camera. The I2C module controls
 					//           the camera characteristics.  Note that upon power up the camera is already in reset state by 
 					//			 virtue of the all IO pins of the micro-controller is set to 0 output state.
-				
+					
+					// NOTE: 9 Feb 2018 - From the preliminary datasheet of TCM8230 camera module, there is a specific power up sequence
+					// to adhere to in order for the camera to initialize properly.  See page 20 of the datasheet.  Specifically we need
+					// to:
+					// 1) Hold the camera reset pin at low.
+					// 2) Then apply 1.5V and 2.8V supplies to the camera, wait for roughly 100 msec.
+					// 3) Then apply the clock pulse, wait for at least 100 clock cycles.
+					// 4) Then pull camera reset pin to high, wait for at least 2000 clock cycles.
+					// 5) Finally start sending I2C commands.
+					// The requirements are camera dependent.  In our driver we just approximate conditions (1) and (2), as the camera VCC 
+					// bus is linked to the micro-controller VCC, so essentially we power up the camera then only held the reset pin low.
+					// Thus for from my observation the camera successfully initialized 90% of the time, so I will leave it at that.  In 
+					// future version of the hardware to take this into consideration.
 				
 				// ----------------------------------------------------------------------------------------------------------------------------------	
 				// --- NOTE: 4 April 2017 - Workaround for error in MVM 1 PCB ---
@@ -183,7 +193,6 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 				// Setup pin PA17 as input. General purpose input.
 				PIOA->PIO_PPDDR |= PIO_PPDDR_P17;  // Disable internal pull-down to PA17.
 				PIOA->PIO_PUER |= PIO_PUER_P17; // Enable internal pull-up to PA17.
-				//PIOA->PIO_PER |= PIO_PER_P17;	// PA17 is controlled by PIO.
 				PIOA->PIO_ODR |= PIO_ODR_P17;	// Disable output write to PA17.
 				//PIOA->PIO_IFER |= PIO_IFER_P17;	// Enable input glitch filter to PA17. This is optional.
 				// --- End of workaround code ---
@@ -191,7 +200,7 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 				
 
 				//nInitCounter = 0;							// Initialize "Initialization" counter.
-				PIN_CAMRESET_SET;							// Disable camera RESET.	
+				PIN_CAMRESET_CLEAR;							// Assert camera RESET.	
 				
 				// Parallel Capture mode interrupt settings.
 				 PIOA->PIO_PCIDR = PIOA->PIO_PCIDR | PIO_PCISR_DRDY | PIO_PCIDR_ENDRX | PIO_PCIDR_DRDY | PIO_PCIDR_RXBUFF | PIO_PCIDR_OVRE; // Disable all PCM interrupts.
@@ -217,39 +226,34 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 																						//  PIODCEN1 or PIODCEN2 are HIGH.	
 				PIOA->PIO_PCMR = PIOA->PIO_PCMR | PIO_PCMR_PCEN;						// Enable Parallel Capture module.  All related pins
 																						// will be automatically set to input.
-																						
-				
-				// Settings of PCK0 (Programmable Clock 0).			
-				
-																// Set Programmable Clock 0 (PCK0) to:
-																// Source: Main clock (8 MHz).
-																// Pre-scaler = divide by 2.
-																// Effective output = 4 MHz.			
-				//PMC->PMC_PCK[0] = PMC->PMC_PCK[0] | PMC_PCK_CSS_MAIN_CLK | PMC_PCK_PRES_CLK_2;
-					
-																// Set Programmable Clock 0 (PCK0) to:
-																// Source: Main clock (8 MHz).
-																// Pre-scaler = divide by 1.
-																// Effective output = 8 MHz.				
-				PMC->PMC_PCK[0] = PMC->PMC_PCK[0] | PMC_PCK_CSS_MAIN_CLK | PMC_PCK_PRES_CLK_1;	
-				PIOB->PIO_PDR = (PIOB->PIO_PDR) | PIO_PDR_P13;	// Set PB13 to be controlled by Peripheral.
-				PMC->PMC_SCER = PMC->PMC_SCER | PMC_SCER_PCK0;	// Enable PCK0.	
-				PIOB->PIO_ABCDSR[0] = (PIOB->PIO_ABCDSR[0]) | PIO_ABCDSR_P13;	// Connect PB13 to Peripheral
-																				// block B.	
+																										
+
 				gnFrameCounter = 0;								// Clear frame counter.			
-				OSSetTaskContext(ptrTask, 1, 500*__NUM_SYSTEMTICK_MSEC); // A long delay for the power supply to settle down.
-																// Next state = 1, timer = 500 msec.
+				OSSetTaskContext(ptrTask, 1, 100*__NUM_SYSTEMTICK_MSEC); // Next state = 1, timer = 100 msec.																
 			break;
 			
-			case 1: // State 1 - Reset camera.
-				PIN_CAMRESET_CLEAR;							// Reset camera (Active low).
-				OSSetTaskContext(ptrTask, 2, _CAMERA_POR_DELAY_MS*__NUM_SYSTEMTICK_MSEC);
-															// Next state = 2, timer = Camera reset delay.
-			break;
+			case 1: // State 1 - Settings of PCK0 (Programmable Clock 0) to generate the clock signal for the camera.
+				
+				// Set Programmable Clock 0 (PCK0) to:
+				// Source: Main clock (8 MHz).
+				// Pre-scaler = divide by 2.
+				// Effective output = 4 MHz.
+				//PMC->PMC_PCK[0] = PMC->PMC_PCK[0] | PMC_PCK_CSS_MAIN_CLK | PMC_PCK_PRES_CLK_2;
+				
+				// Set Programmable Clock 0 (PCK0) to:
+				// Source: Main clock (8 MHz).
+				// Pre-scaler = divide by 1.
+				// Effective output = 8 MHz.
+				PMC->PMC_PCK[0] = PMC->PMC_PCK[0] | PMC_PCK_CSS_MAIN_CLK | PMC_PCK_PRES_CLK_1;
+				PIOB->PIO_PDR = (PIOB->PIO_PDR) | PIO_PDR_P13;	// Set PB13 to be controlled by Peripheral.
+				PMC->PMC_SCER = PMC->PMC_SCER | PMC_SCER_PCK0;	// Enable PCK0.
+				PIOB->PIO_ABCDSR[0] = (PIOB->PIO_ABCDSR[0]) | PIO_ABCDSR_P13;	// Connect PB13 to Peripheral block B.							
+				OSSetTaskContext(ptrTask, 2, 10*__NUM_SYSTEMTICK_MSEC);			// Next state = 2, timer = 10 msec.
+			break;			
 
 			case 2: // State 2 - Disable camera reset, delay.
 				PIN_CAMRESET_SET;							// Disable camera RESET.		
-				OSSetTaskContext(ptrTask, 3, _CAMERA_RESET_DELAY_MS*__NUM_SYSTEMTICK_MSEC);
+				OSSetTaskContext(ptrTask, 3, 100*__NUM_SYSTEMTICK_MSEC);
 															// Next state = 3, timer = Camera reset delay.			
 			break;
 			
@@ -314,35 +318,12 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 				     gbytI2CRegAdd = 0x03;				// Start address of register.
 				     gbytI2CTXbuf[0] = 0x0E;			// Data, QQVGA(f).
 					 //gbytI2CTXbuf[0] = 0x12;			// Data, QQVGA(z).
+					 //gbytI2CTXbuf[0] = 0x22;			// Data, subQCIF(f).
+					 //gbytI2CTXbuf[0] = 0x26;			// Data, subQCIF(z).
 				     gbytI2CSlaveAdd =  _CAMERA_I2C2_ADD;	// Camera I2C slave address.
 				     gI2CStat.bSend = 1;
 					
-					 
-					 // Enable PCK0 (programmable clock output 0).  This supply the clock input to the camera.
-					 // Set Programmable Clock 0 (PCK0) to:
-					 // Source: Main clock (8 MHz).
-					 // Pre-scaler = divide by 1.
-					 // Effective output = 8 MHz.
-					 PMC->PMC_PCK[0] = PMC->PMC_PCK[0] | PMC_PCK_CSS_MAIN_CLK | PMC_PCK_PRES_CLK_1;
-					 //PIOB->PIO_ABCDSR[0] = (PIOB->PIO_ABCDSR[0]) | PIO_ABCDSR_P13;	// Connect PB13 to Peripheral
-					 //PMC->PMC_SCER = PMC->PMC_SCER | PMC_SCER_PCK0;	// Enable PCK0.	
-
-					 // Note: 5 April 2017 - I discovered that the camera module sometimes would not initialize properly,
-					 // could be due to the reset timing and duration.  Since I do not have the exact datasheet for the
-					 // camera module (only the preliminary can be found online), I figure the easiest way to overcome this
-					 // is to execute the initialization sequence multiple times.  Here we initialize the camera module 
-					 // twice.
-					 nInitCounter++;						
-					 if (nInitCounter == 10)											// Have we initialize the camera module
-					 {																// 5x?
-						OSSetTaskContext(ptrTask, 6, 5*__NUM_SYSTEMTICK_MSEC);      // Yes, next state = 6, timer = 5 msec.
-					 }
-					 else
-					 {
-						OSSetTaskContext(ptrTask, 1, 10*__NUM_SYSTEMTICK_MSEC);     // No, next state = 1, timer = 10 msec.
-						//OSSetTaskContext(ptrTask, 0, 10*__NUM_SYSTEMTICK_MSEC);     // No, next state = 0, timer = 10 msec.
-					 }
-
+					OSSetTaskContext(ptrTask, 6, 5*__NUM_SYSTEMTICK_MSEC);      // Yes, next state = 6, timer = 5 msec.
 				}		
 				else                                         // I2C still busy.     
 				{
@@ -383,6 +364,10 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 					PDC_PIOA->PERIPH_RNCR = 0;						// Set next receive buffer length.
 					
 					nLineCounter = 0;								// Reset line counter.
+					for (nTemp = 0; nTemp < 128; nTemp++)			// Clear the luminance histogram array.
+					{
+						gunIHisto[nTemp] = 0;
+					}
 					OSSetTaskContext(ptrTask, 8, 1);				// Next state = 8, timer = 1.
 				}
 				else
@@ -504,17 +489,32 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 						// --- Compute the hue ---
 						// When saturation is too low, the color is near gray scale, and hue value is not accurate.
 						// Similarly when the light is too bright, the difference between color components may not be large
-						// enough to work out the hue, and hue is also not accurate.
-						if (nDeltaRGB < 6)               
-						{                                       // The minimum RGB component intensity corresponds
-							nHue = _NO_HUE;                     // to the white level intensity.  Thus the difference
-						}		                                // between maximum RGB component and white level is an
-																// indication of the saturation level.  This difference
-																// needs to be sufficiently large for reliable hue 
-																// recognition, we arbitrary sets this to at least 10% 
-																// of the maximum RGB component.  For 6 bits RGB color
-																// components, max = 63, min = 0.  Thus maximum difference
-																// is 63.  10% of this is 6.30.
+						// enough to work out the hue, and hue is also not accurate.  
+						// From color theory (e.g. see Digital Image Processing by Gonzales and Woods, 2018), the minimum 
+						// RGB component intensity corresponds to the white level intensity.  Thus the difference
+						// between maximum RGB component and white level is an indication of the saturation level.
+						// This difference needs to be sufficiently large for reliable hue
+						// For 6 bits RGB components, the maximum value of recognition, we arbitrary sets this to at least 
+						// 10% of the maximum RGB component. For 6 bits RGB color (as in RGB565 format) components, max = 63
+						// and min = 0.  Thus maximum difference is 63.  10% of this is 6.30. We then experiment with
+						// thresholds of 4 to 7 and select the best in terms of sensitivity and accuracy for the camera.
+						// Once we identified the condition where hue calculation is no valid, we need to distinguish 
+						// between too bright and too dark/grayscale conditions.  For these two scenarios, we analyze the maximum
+						// RGB value.  Here we arbitrary set the threshold at 20% or roughly 12.  Thus if 
+						// saturation level is too low, we check the maximum RGB level.  If this is <= 12, then it is
+						// 'No hue' due to low light condition.  Else it is 'No hue' due to too bright condition.
+						
+						if (nDeltaRGB < 5)              // Check if it is possible to make out the hue. 
+						{								
+							if (unMaxRGB < 13)			// Distinguish between too bright or too dark/grayscale conditions.	
+							{
+								nHue = _NO_HUE_DARK; 
+							} 
+							else
+							{
+								nHue = _NO_HUE_BRIGHT;	
+							}    
+						}
 						else
 						{
 							if (nR6 == unMaxRGB)          // nR6 is maximum. Note: since we are working with integers,
@@ -536,32 +536,30 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 							}
 						}
 						
-						// Test (12 Dec 2016)
-						if (nLineCounter == 60)
-						{
-							if (ncolindex == 80)
-							{
-								gunR = nR5;
-								gunG = nG6;
-								gunB = nB5;
-								gunDeltaRGB = nDeltaRGB;
-							}
-						}
-						
 						// Computing the luminance gradient using Sobel's Kernel.
 						if ((ncolindex > 1) && (nLineCounter > 1))						// See notes on the derivation of this range.
 						{
-							// Note: 13 Oct 2016, need to improve the efficiency.  In theory for each new pixel we only need
-							// to fetch 4 pixel points only.
-							nLuminance1 = gunImgAtt[ncolindex-2][nLineCounter-2] & _LUMINANCE_MASK;			
+							// See notes. For 1st column of interest we need to read all 8 adjacent pixel luminance to compute the 
+							// gradients along vertical and horizontal axis.  For subsequent columns we only need to read in the 
+							// luminance values for 4 adjacent pixels.
+							//  |  L1 L7 L2  ---> Columns
+							//  |  L3 G  L4
+							// \|/ L5 L8 L6   Where L6 = Current pixel under process, G = pixel whose gradient we are computing.
+							//  Rows
+							if (ncolindex == 2)
+							{
+								nLuminance1 = gunImgAtt[ncolindex-2][nLineCounter-2] & _LUMINANCE_MASK;
+								nLuminance5 = gunImgAtt[ncolindex-2][nLineCounter] & _LUMINANCE_MASK;
+								nLuminance7 = gunImgAtt[ncolindex-1][nLineCounter-2] & _LUMINANCE_MASK;
+								nLuminance8 = gunImgAtt[ncolindex-1][nLineCounter] & _LUMINANCE_MASK;								
+							}
+															
 							nLuminance2 = gunImgAtt[ncolindex][nLineCounter-2] & _LUMINANCE_MASK;	
 							nLuminance3 = gunImgAtt[ncolindex-2][nLineCounter-1] & _LUMINANCE_MASK;
-							nLuminance4 = gunImgAtt[ncolindex][nLineCounter-1] & _LUMINANCE_MASK;
-							nLuminance5 = gunImgAtt[ncolindex-2][nLineCounter] & _LUMINANCE_MASK;
+							nLuminance4 = gunImgAtt[ncolindex][nLineCounter-1] & _LUMINANCE_MASK;							
 							//nLuminance6 = gunImgAtt[ncolindex][nLineCounter] & _LUMINANCE_MASK;	// This is the same as nLuminance.					
 							nLuminance6 = nLuminance;	
-							nLuminance7 = gunImgAtt[ncolindex-1][nLineCounter-2] & _LUMINANCE_MASK;
-							nLuminance8 = gunImgAtt[ncolindex-1][nLineCounter] & _LUMINANCE_MASK;							
+					
 							
 							// Calculate x gradient											
 							nLumGradx = nLuminance2  + nLuminance6 - nLuminance1 - nLuminance5;
@@ -570,6 +568,13 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 							nLumGrady = nLuminance5  + nLuminance6 - nLuminance1 - nLuminance2;
 							nLumGrady = nLumGradx + ((nLuminance8 - nLuminance7) << 1);
 
+							// Shift samples to obtain current adjacent luminance values.  This is faster than reading the values from 
+							// a 2D array and apply masking to extract the luminance.
+							nLuminance1 = nLuminance7;
+							nLuminance5 = nLuminance8;
+							nLuminance7 = nLuminance2;
+							nLuminance8 = nLuminance6;
+							
 							if (nLumGradx < 0)		// Only magnitude is required.
 							{
 								nLumGradx = -nLumGradx;
@@ -586,7 +591,7 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 							{						// luminance indication.
 								nLumGrad = 127;
 							}
-							if (nLumGrad < 60)		// To remove gradient noise.  Can reduce to 10 if the camera quality is good.
+							if (nLumGrad < 20)		// To remove gradient noise.  Can reduce to 10 if the camera quality is good.
 							{
 								nLumGrad = 0;
 							}
@@ -598,16 +603,12 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 
 						
 						// Update the pixel attributes.
-								
-						// Test
-						//gunImgAtt[ncolindex][nLineCounter] = nR6<<1;						// Send red component (6 bits).
-						//gunImgAtt[ncolindex][nLineCounter] = nG6<<1;						// Send Green component (6 bits).
-						//gunImgAtt[ncolindex][nLineCounter] = nB6<<1;						// Send Blue component (6 bits).
-						
+														
 						// Consolidate all the pixel attribute into the attribute array.
 						//gunImgAtt[ncolindex][nLineCounter] = nLuminance | (nLumGrad << _GRAD_SHIFT) | (unSat << _SAT_SHIFT);
-						gunImgAtt[ncolindex][nLineCounter] = nLuminance | (nLumGrad << _GRAD_SHIFT) | (unSat << _SAT_SHIFT) | (nHue << _HUE_SHIFT);
-						
+						//gunImgAtt[ncolindex][nLineCounter] = nLuminance | (nLumGrad << _GRAD_SHIFT) | (unSat << _SAT_SHIFT) | (nHue << _HUE_SHIFT);
+						gunImgAtt[ncolindex][nLineCounter] = nLuminance | (unSat << _SAT_SHIFT) | (nHue << _HUE_SHIFT);
+						gunImgAtt[ncolindex-1][nLineCounter-1] = gunImgAtt[ncolindex-1][nLineCounter-1] | (nLumGrad << _GRAD_SHIFT);
 					}				
 					
 					// --- End of pre-processing image data here ---
@@ -633,10 +634,6 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 
 			case 9: // State 9 - End, do some tidy-up chores if necessary.
 				gnFrameCounter++;								// Update frame counter.
-				for (nTemp = 0; nTemp<255; nTemp++)				// Clear the luminance histogram array.
-				{
-					gunIHisto[nTemp] = 0;
-				}
 				gunAverageLuminance = unLumCumulative/_NOPIXELSINFRAME;	// Update the average Luminance.
 				unLumCumulative = 0;							// Reset the sum of Luminance.
 				OSSetTaskContext(ptrTask, 6, 1);				// Next state = 6, timer = 1.
@@ -654,16 +651,16 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 ///
 /// Author              : Fabian Kung
 ///
-/// Last modified		: 28 July 2017
+/// Last modified		: 23 Dec 2017
 ///
-/// Code Version		: 0.90
+/// Code Version		: 0.91
 ///
 /// Processor			: ARM Cortex-M4 family
 ///
 /// Processor/System Resources
 /// PINS                : Pin PA12 (Output) = Camera LED control, active high.	
-///						  Pin PA20 (Output) = Right Eye LED control, active high.
-///						  Pin PA22 (Output) = Left Eye LED control, active high.
+///						  Pin PA20 (Output) = Eye LED1 control, active high.
+///						  Pin PA22 (Output) = Eye LED2 control, active high.
 ///
 /// MODULES             :
 ///
@@ -681,32 +678,35 @@ void Proce_TCM8230_Driver(TASK_ATTRIBUTE *ptrTask)
 
 /// Description: Process to control the eye LEDs and camera LED.
 /// Usage:
-/// To light up the visible light LED, set gnCameraLED, gnEyeLEDLeft and gnEyeLEDRight from 1 to 6 (6 being the brightest).
-/// Setting gnCameraLED, gnEyeLEDLeft and gnEyeLEDRight to 0 or smaller turn off the LED. Setting the respective LED control
-/// register to greater than 6 is similar to maintaining brightest intensity.
+/// To light up the visible light LED, set gnCameraLED, gnEyeLED1 and gnEyeLED2 from 1 to 6 (6 being the brightest).
+/// Setting gnCameraLED, gnEyeLED1 and gnEyeLED2 to 0 or smaller turn off the LED. Setting the respective LED control
+/// register to greater than 9 is similar to setting the intensity from 1 to 6, with the effect of blinking the LEDs.
+/// Thus for instance if gnEyeLED1 = 9, the LED1 intensity will be set to level 1, and blink.  If gnEyeLED1 = 10, LED1
+/// intensity will be set to level 2, and blink.
 /// 
-#define	PIN_EYELED_RIGHT_ON		PIOA->PIO_ODSR |= PIO_ODSR_P20		// Set pin PA20.
-#define	PIN_EYELED_RIGHT_OFF	PIOA->PIO_ODSR &= ~PIO_ODSR_P20		// Clear pin PA20.
-#define	PIN_EYELED_LEFT_ON		PIOA->PIO_ODSR |= PIO_ODSR_P22		// Set pin PA22.
-#define	PIN_EYELED_LEFT_OFF		PIOA->PIO_ODSR &= ~PIO_ODSR_P22		// Clear pin PA22.
-#define	PIN_CAMLED_ON			PIOA->PIO_ODSR |= PIO_ODSR_P12		// Turn on camera LED, PA12.
-#define	PIN_CAMLED_OFF			PIOA->PIO_ODSR &= ~PIO_ODSR_P12		// Turn off camera LED, PA12.
+#define	PIN_EYELED1_ON		PIOA->PIO_ODSR |= PIO_ODSR_P20			// Set pin PA20.
+#define	PIN_EYELED1_OFF		PIOA->PIO_ODSR &= ~PIO_ODSR_P20			// Clear pin PA20.
+#define	PIN_EYELED2_ON		PIOA->PIO_ODSR |= PIO_ODSR_P22			// Set pin PA22.
+#define	PIN_EYELED2_OFF		PIOA->PIO_ODSR &= ~PIO_ODSR_P22			// Clear pin PA22.
+#define	PIN_CAMLED_ON		PIOA->PIO_ODSR |= PIO_ODSR_P12			// Turn on camera LED, PA12.
+#define	PIN_CAMLED_OFF		PIOA->PIO_ODSR &= ~PIO_ODSR_P12			// Turn off camera LED, PA12.
 
 void Proce_Camera_LED_Driver(TASK_ATTRIBUTE *ptrTask)
 {
-	static int	nCounter = 0;
+	static	int	nCounter = 0;
+	static	int	nCounterBlink = 0;
 
 	if (ptrTask->nTimer == 0)
 	{
 		switch (ptrTask->nState)
 		{
 			case 0: // State 0 - Initialization.
-				PIN_CAMLED_OFF;							// Off the LED first.
-				PIN_EYELED_RIGHT_OFF;
-				PIN_EYELED_LEFT_OFF;
+				PIN_CAMLED_OFF;							// Off all LEDs first.
+				PIN_EYELED1_OFF;
+				PIN_EYELED2_OFF;
 				gnCameraLED = 0;
-				gnEyeLEDRight = 0;
-				gnEyeLEDLeft = 0;
+				gnEyeLED1 = 0;
+				gnEyeLED2 = 0;
 				OSSetTaskContext(ptrTask, 1, 1000*__NUM_SYSTEMTICK_MSEC);    // Next state = 1, timer = 1000 msec.
 				break;
 
@@ -721,36 +721,72 @@ void Proce_Camera_LED_Driver(TASK_ATTRIBUTE *ptrTask)
 				}
 			break;
 
-			case 2: // State 2 - Drive the eye LED.
-				if (gnCameraLED > nCounter)
+			case 2: // State 2 - Drive the camera and eye LEDs.
+				if ((gnCameraLED & 0x07) > nCounter)	// Get last 3 bits and compare with counter.
 				{
-					PIN_CAMLED_ON;
+					if (gnCameraLED > 7)				// Check if bit3 is set, enable blinking.
+					{
+						if (nCounterBlink > 1500)
+						{
+							PIN_CAMLED_ON;				// No blinking.
+						}
+					}
+					else
+					{
+						PIN_CAMLED_ON;					
+					}					
 				}
 				else
 				{
 					PIN_CAMLED_OFF;
 				}
-				if (gnEyeLEDRight > nCounter)
+				if ((gnEyeLED1 & 0x07) > nCounter)		// Get last 3 bits and compare with counter.
 				{
-					PIN_EYELED_RIGHT_ON;
+					if (gnEyeLED1 > 7)					// Check if bit3 is set, enable blinking.
+					{
+						if (nCounterBlink > 1500)
+						{
+							PIN_EYELED1_ON;				// No blinking.
+						}
+					}
+					else
+					{					
+						PIN_EYELED1_ON;
+					}
 				}
 				else
 				{
-					PIN_EYELED_RIGHT_OFF;
+					PIN_EYELED1_OFF;
 				}
-				if (gnEyeLEDLeft > nCounter)
+				if ((gnEyeLED2 & 0x07) > nCounter) 
 				{
-					PIN_EYELED_LEFT_ON;
+					if (gnEyeLED2 > 7)					// Check if bit3 is set, enable blinking.
+					{
+						if (nCounterBlink > 1500)		// Check if bit3 is set, enable blinking.
+						{
+							PIN_EYELED2_ON;
+						}
+					}
+					else
+					{
+						PIN_EYELED2_ON;					// No blinking.
+					}
 				}
 				else
 				{
-					PIN_EYELED_LEFT_OFF;
+					PIN_EYELED2_OFF;
 				}
 				nCounter++;
 				if (nCounter == 6)
 				{
 					nCounter = 0;
+				}			
+				nCounterBlink++;
+				if (nCounterBlink == 3000)
+				{
+					nCounterBlink = 0;
 				}
+				
 				OSSetTaskContext(ptrTask, 2, 1);    // Next state = 2, timer = 1.
 				break;
 			
