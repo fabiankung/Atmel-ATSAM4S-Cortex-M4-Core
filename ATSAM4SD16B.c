@@ -12,8 +12,7 @@
 #include "./C_Library/Driver_UART_V100.h" 
 #include "./C_Library/Driver_TCM8230.h" 
 #include "./C_Library/Driver_USART_V100.h"  
-//#include "./C_Library/Driver_HC_05_V100.h"
-//#include "./C_Library/Driver_DACC_V100.h"
+
 
 #include "User_Task.h" 
 
@@ -27,8 +26,7 @@ int main(void)
 	int ni = 0;
 
 	/* Initialize the SAM system */
-	SystemInit();				// CMSIS initialization.
-	SAM4S_Init();				// Custom initialization.
+	SAM4S_Init();				// Custom initialization of the ATSAM4S chip.
 	OSInit();                   // Custom initialization: Initialize the RTOS.
 	gnTaskCount = 0; 			// Initialize task counter.
 
@@ -39,17 +37,13 @@ int main(void)
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_I2C0_Driver);		// I2C0 driver.
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_UART_Driver);		// UART0 driver.
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_USART_Driver);		// USART0 driver.
-	// Initialize user processes.
+	
+	// Initialize user processes (example tasks are shown here).
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_TCM8230_Driver);		// CMOS camera driver.
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_MessageLoop_StreamImage);	// User task 1, stream image to external display.
 	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_Camera_LED_Driver);	// Head/camera LED driver.
-	//OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_EyeLED_Effect);		
 	
 	
-	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_Image1);				// User task 3, process image captured.
-	OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_Image2);				// User task 4, process image captured.
-	//OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_Image3);				// User task 5, process image captured.
-	//OSCreateTask(&gstrcTaskContext[gnTaskCount], Proce_Image4);				// User task 6, process image captured.
 
 	while (1)
 	{

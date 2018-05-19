@@ -9,8 +9,8 @@
 //
 // Filename			: os_SAM4S_APIs.c
 // Author			: Fabian Kung
-// Last modified	: 27 Feb 2018
-// Version			: 1.01
+// Last modified	: 18 May 2018
+// Version			: 1.02
 // Description		: This file contains the implementation of all the important routines
 //                    used by the OS and the user routines. Most of the routines deal with
 //                    micro-controller specifics resources, thus the functions have to be
@@ -58,7 +58,7 @@ inline void ClearWatchDog(void)
 
 /// Function Name	: SAM4S_Init
 /// Author			: Fabian Kung
-/// Last modified	: 22 Jan 2016
+/// Last modified	: 18 May 2018
 /// Description		: This function performs further initialization of the Cortex-M
 ///                   processor, namely:
 ///					  1. Setup processor main oscillator and clock generator circuit.
@@ -126,8 +126,6 @@ void SAM4S_Init()
 	PMC->PMC_PCDR0 = 0xFFFFFF00;		// Disable clock to peripheral ID8 to ID31.
 	PMC->PMC_PCDR1 = 0x0000000F;		// Disable clock to peripheral ID32 to ID34.
 
-	SystemCoreClockUpdate();									// Update the core clock variable.	
-	
 	
 	// Setup Port A and Port B IO ports.
 	// --- Setup PIOA ---
